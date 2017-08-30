@@ -11,6 +11,10 @@ using std::vector;
  * Initializes Unscented Kalman filter
  */
 UKF::UKF() {
+    
+    ///* initially set to false, set to true in first call of ProcessMeasurement
+    is_initialized_ = false;
+    
     // if this is false, laser measurements will be ignored (except during init)
     use_laser_ = true;
     
@@ -18,16 +22,31 @@ UKF::UKF() {
     use_radar_ = true;
     
     // initial state vector
-    x_ = VectorXd(5);
+    x_ = VectorXd::Zero(5, 1);
     
     // initial covariance matrix
-    P_ = MatrixXd(5, 5);
+    P_ = MatrixXd::Zero(5, 5);
+    P_ <<     0.0043,   -0.0013,    0.0030,   -0.0022,   -0.0020,
+    -0.0013,    0.0077,    0.0011,    0.0071,    0.0060,
+    0.0030,    0.0011,    0.0054,    0.0007,    0.0008,
+    -0.0022,    0.0071,    0.0007,    0.0098,    0.0100,
+    -0.0020,    0.0060,    0.0008,    0.0100,    0.0123;
+    
+    ///* State dimension
+    n_x_ = 5;
+    
+    // dimension after augmentation
+    n_aug_ = 7;
+    
+    // Note: I was re-declaring it here
+    ///* predicted sigma points matrix
+    Xsig_pred_ = MatrixXd::Zero(n_x_, 2 * n_aug_ + 1);
     
     // Process noise standard deviation longitudinal acceleration in m/s^2
     std_a_ = 0.2;
     
     // Process noise standard deviation yaw acceleration in rad/s^2
-    std_yawdd_ = 0.2        ;
+    std_yawdd_ = 0.2;
     
     // Laser measurement noise standard deviation position1 in m
     std_laspx_ = 0.15;
@@ -52,25 +71,13 @@ UKF::UKF() {
      Hint: one or more values initialized above might be wildly off...
      */
     
-    is_initialized_ = false;
-    n_x_ = 5;
-    x_ << 1,1,0,0,0;
-    // dimension after augmentation
-    n_aug_ = 7;
-
-    // Note: I was re-declaring it here
-    Xsig_pred_ = MatrixXd::Zero(n_x_, 2 * n_aug_ + 1);
+    //define spreading parameter
+    lambda_ = 3 - n_aug_;
     
-    P_ <<     0.0043,   -0.0013,    0.0030,   -0.0022,   -0.0020,
-    -0.0013,    0.0077,    0.0011,    0.0071,    0.0060,
-    0.0030,    0.0011,    0.0054,    0.0007,    0.0008,
-    -0.0022,    0.0071,    0.0007,    0.0098,    0.0100,
-    -0.0020,    0.0060,    0.0008,    0.0100,    0.0123;
-    
-    weights_ = VectorXd(2*n_aug_+1);
+    ///* Weights of sigma points
+    weights_ = VectorXd(2 * n_aug_ + 1);
     
 }
-
 
 
 UKF::~UKF() {}
@@ -91,18 +98,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
         if(meas_package.sensor_type_ == MeasurementPackage::RADAR) {
             
         }
-        
         if(meas_package.sensor_type_ == MeasurementPackage::LASER) {
-            
-             x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
-            
-            /*
-            x_ <<   5.7441,
-            1.3800,
-            2.2049,
-            0.5015,
-            0.3528;
-             */
+            x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
         }
         is_initialized_ = true;
         return;
@@ -112,27 +109,24 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     float dt = (meas_package.timestamp_ - previous_timestamp_) / 1000000.0;	//dt - expressed in seconds
     previous_timestamp_ = meas_package.timestamp_;
     
+    /*
     float dt_2 = dt * dt;
     float dt_3 = dt_2 * dt;
     float dt_4 = dt_3 * dt;
+    */
     
     //create vector for weights
-    
-    
-    double weight_0 = lambda_/(lambda_+n_aug_);
-    weights_(0) = weight_0;
+    weights_(0) = lambda_/(lambda_+n_aug_);
     for (int i=1; i<2*n_aug_+1; i++) {  //2n+1 weights
-        double weight = 0.5/(n_aug_+lambda_);
-        weights_(i) = weight;
+        weights_(i) = 0.5/(n_aug_+lambda_);
     }
     
+    // PREDICT STATE
     Prediction(dt);
-    // Update State
+    
+    // UPDATE STATE
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
         UKF::UpdateRadar(meas_package);
-        //ekf_.Hj_ = tools.CalculateJacobian(ekf_.x_);
-        // Radar updates
-        //ekf_.UpdateEKF(measurement_pack.raw_measurements_);
     } else {
         // Laser updates
         //ekf_.Update(measurement_pack.raw_measurements_);
@@ -152,28 +146,26 @@ void UKF::Prediction(double delta_t) {
      vector, x_. Predict sigma points, the state, and the state covariance matrix.
      */
     
-    
-    //define spreading parameter
-    double lambda_ = 3 - n_aug_;
-    
     //create augmented mean vector x_ (size 7)
     VectorXd x_aug = VectorXd(n_aug_);
     x_aug << x_,0,0;
     
-    //create augmented state covariance P_ (size 7x7)
     Eigen::Matrix<double, 2, 2> Q_;
     Q_ << std_a_*std_a_, 0, 0, std_yawdd_*std_yawdd_;
     
+    //create augmented state covariance P_ (size 7x7)
     MatrixXd P_aug = MatrixXd::Zero(n_aug_, n_aug_);
     P_aug.topLeftCorner(P_.rows(), P_.cols()) = P_;
     P_aug.bottomRightCorner(Q_.rows(), Q_.cols()) = Q_;
-    // square root of P
+    
+    // square root of P_aug
     MatrixXd A = MatrixXd::Zero(n_aug_, n_aug_);
     
     A = P_aug.llt().matrixL();
     //create sigma point matrix Xsig_aug (size 7x15)
     MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
     
+    // populate Xsig_aug Matrix
     //set first column of sigma point matrix
     Xsig_aug.col(0)  = x_aug;
     
@@ -189,7 +181,6 @@ void UKF::Prediction(double delta_t) {
     
     // Note:: these values are different from the Quiz because delta_t
     // in the quiz is 0.1 while here it is 0.5
-    
     
     //predict sigma points
     for (int i = 0; i< 2*n_aug_+1; i++)
@@ -226,7 +217,6 @@ void UKF::Prediction(double delta_t) {
         px_p = px_p + 0.5*nu_a*delta_t*delta_t * cos(yaw);
         py_p = py_p + 0.5*nu_a*delta_t*delta_t * sin(yaw);
         v_p = v_p + nu_a*delta_t;
-        
         yaw_p = yaw_p + 0.5*nu_yawdd*delta_t*delta_t;
         yawd_p = yawd_p + nu_yawdd*delta_t;
         
@@ -238,25 +228,21 @@ void UKF::Prediction(double delta_t) {
         Xsig_pred_(3,i) = yaw_p;
         Xsig_pred_(4,i) = yawd_p;
     }
+    /*
     std::cout << "  " << std::endl;
     std::cout << "Sigma Prediction Matrix" << std::endl;
     std::cout << Xsig_pred_ << std::endl;
+    */
     
-    // Predict MEan and Covariance
-    
-    
-    
-    //create vector for predicted state
-    VectorXd x_pred_ = VectorXd(n_x_);
-    
+    // Predict State Mean
+    //VectorXd x_pred_ = VectorXd(n_x_);
     x_pred_.fill(0.0);
     for (int i = 0; i < 2 * n_aug_ + 1; i++) {  //iterate over sigma points
         x_pred_ = x_pred_ + weights_(i) * Xsig_pred_.col(i);
     }
     
-    //create covariance matrix for prediction
-    MatrixXd P_pred_ = MatrixXd(n_x_, n_x_);
-
+    // Predict State Covariance
+    //MatrixXd P_pred_ = MatrixXd(n_x_, n_x_);
     P_pred_.fill(0.0);
     for (int i = 0; i < 2 * n_aug_ + 1; i++) {  //iterate over sigma points
         
@@ -268,10 +254,10 @@ void UKF::Prediction(double delta_t) {
         
         P_pred_ = P_pred_ + weights_(i) * x_diff * x_diff.transpose() ;
     }
-    std::cout << " x_pred: " << x_pred_ << std::endl;
-    std::cout << " P_pred: " << P_pred_ << std::endl;
+    std::cout << " x_pred_: " << x_pred_ << std::endl;
+    std::cout << " P_pred_: " << P_pred_ << std::endl;
     
-
+    
 }
 
 
@@ -363,7 +349,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     S = S + R;
     
     
-   
+    
     
     // Now use measurements
     
@@ -380,8 +366,10 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
         while (z_diff(1)> M_PI) z_diff(1)-=2.*M_PI;
         while (z_diff(1)<-M_PI) z_diff(1)+=2.*M_PI;
         
+        
+        //to change
         // state difference
-        VectorXd x_diff = Xsig_pred_.col(i) - x_;
+        VectorXd x_diff = Xsig_pred_.col(i) - x_pred_;
         //angle normalization
         while (x_diff(3)> M_PI) x_diff(3)-=2.*M_PI;
         while (x_diff(3)<-M_PI) x_diff(3)+=2.*M_PI;
@@ -401,11 +389,11 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     while (z_diff(1)<-M_PI) z_diff(1)+=2.*M_PI;
     
     //update state mean and covariance matrix
-    x_ = x_ + K * z_diff;
-    P_ = P_ - K*S*K.transpose();
+    x_ = x_pred_ + K * z_diff;
+    P_ = P_pred_ - K*S*K.transpose();
     
     //print result
-    std::cout << "x: " << std::endl << x_ << std::endl;
-    std::cout << "P: " << std::endl << P_ << std::endl;
+    std::cout << "x_meas_update: " << std::endl << x_ << std::endl;
+    std::cout << "P_meas_update: " << std::endl << P_ << std::endl;
     
 }
