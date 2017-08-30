@@ -69,6 +69,8 @@ public:
 
     //// Project Complete
     double previous_timestamp_;
+    VectorXd x_pred = Eigen::VectorXd::Zero(5, 1);
+    MatrixXd P_pred = MatrixXd::Zero(5, 5);
 
 
   /**
