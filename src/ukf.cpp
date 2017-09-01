@@ -45,10 +45,10 @@ UKF::UKF() {
     Xsig_pred_ = MatrixXd::Zero(n_x_, 2 * n_aug_ + 1);
     
     // Process noise standard deviation longitudinal acceleration in m/s^2
-    std_a_ = 0.2;
+    std_a_ = 3.5;
     
     // Process noise standard deviation yaw acceleration in rad/s^2
-    std_yawdd_ = 0.2;
+    std_yawdd_ = 2.5;
     
     // Laser measurement noise standard deviation position1 in m
     std_laspx_ = 0.15;
@@ -132,7 +132,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     } else {
         // Laser updates
         UKF::UpdateLidar(meas_package);
-        //ekf_.Update(measurement_pack.raw_measurements_);
     }
 }
 
@@ -257,8 +256,8 @@ void UKF::Prediction(double delta_t) {
         
         P_pred_ = P_pred_ + weights_(i) * x_diff * x_diff.transpose() ;
     }
-    std::cout << " x_pred_: " << x_pred_ << std::endl;
-    std::cout << " P_pred_: " << P_pred_ << std::endl;
+    //std::cout << " x_pred_: " << x_pred_ << std::endl;
+    //std::cout << " P_pred_: " << P_pred_ << std::endl;
     
     
 }
@@ -349,6 +348,12 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
     //update state mean and covariance matrix
     x_ = x_pred_ + K * z_diff;
     P_ = P_pred_ - K*S*K.transpose();
+    
+    // Calculate NIS
+    double NIS_laser_;
+    
+    NIS_laser_ = z_diff.transpose() * S.inverse() * z_diff;
+    std::cout << NIS_laser_ << std::endl;
     
 }
 
@@ -462,8 +467,15 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
     x_ = x_pred_ + K * z_diff;
     P_ = P_pred_ - K*S*K.transpose();
     
+    // Calculate NIS
+    double NIS_radar_;
+    
+    //NIS_radar_ = z_diff.transpose() * S.inverse() * z_diff;
+    //std::cout << NIS_radar_ << std::endl;
+    
+    
     //print result
-    std::cout << "x_meas_update: " << std::endl << x_ << std::endl;
-    std::cout << "P_meas_update: " << std::endl << P_ << std::endl;
+    //std::cout << "x_meas_update: " << std::endl << x_ << std::endl;
+    //std::cout << "P_meas_update: " << std::endl << P_ << std::endl;
     
 }
